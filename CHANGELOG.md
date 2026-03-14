@@ -11,5 +11,6 @@
 - Added streaming `scanPhotoLibrary()` progress and batch callbacks.
 - Added an Expo config plugin that wraps `expo-media-library` permission setup.
 - Added an Expo example app for local smoke testing.
+- Added GitHub Actions trusted publishing for automatic signed npm releases on version tags.
 
 ### 🐛 Bug fixes

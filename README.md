@@ -168,7 +168,31 @@ npm run example:ios
 npm run example:android
 ```
 
-## Publish
+## Automated npm Publishing
+
+This repo is configured for npm trusted publishing from GitHub Actions in `.github/workflows/publish.yml`.
+
+Before the workflow can publish, configure the npm package once on npmjs.com:
+
+1. Open the package settings for `react-native-photo-management`.
+2. In `Trusted Publisher`, choose `GitHub Actions`.
+3. Set `Organization or user` to `jonluca`.
+4. Set `Repository` to `react-native-photo-management`.
+5. Set `Workflow filename` to `publish.yml`.
+
+npm trusted publishing uses GitHub OIDC, so no `NPM_TOKEN` secret is required. Because this repo is public and the package is public, npm will automatically attach provenance attestations when the workflow publishes.
+
+After the first successful publish, npm recommends tightening package settings to `Require two-factor authentication and disallow tokens` so only trusted publishing remains available.
+
+## Release Flow
+
+1. Update `package.json` and `package-lock.json` to the next version.
+2. Commit the release.
+3. Push a matching Git tag such as `v0.1.1`.
+
+The workflow publishes only when the pushed tag matches the `package.json` version exactly.
+
+## Manual Validation
 
 Validate the package contents before publishing:
 
@@ -185,3 +209,5 @@ Then publish:
 ```bash
 npm publish --access public
 ```
+
+Manual local publishing is still available, but the intended release path is GitHub Actions trusted publishing via signed provenance.
