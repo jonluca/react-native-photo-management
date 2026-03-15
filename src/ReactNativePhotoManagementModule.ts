@@ -7,7 +7,10 @@ import { Platform } from "react-native";
 import {
   createUnsupportedPlatformError,
   DEFAULT_FOOD_IDENTIFIERS,
+  orderClassificationResults,
+  partitionExistingAssetIds,
   processForFoodDetection,
+  prepareUriClassificationBatch,
   summarizeCollectedAssets,
   updateScanProgressMetrics,
 } from "./ReactNativePhotoManagement.internal";
@@ -15,8 +18,12 @@ import type {
   AssetLocation,
   AssetMediaType,
   BatchAssetInfo,
-  ClassificationLabel,
+  ClassificationOptions,
+  ClassificationResult,
   CountPhotoLibraryAssetsOptions,
+  CreateAlbumWithAssetsOptions,
+  CreateAlbumWithAssetsResult,
+  DeleteAssetsBatchResult,
   FoodDetectionOptions,
   FoodDetectionResult,
   PhotoLibraryMediaType,
@@ -24,21 +31,23 @@ import type {
   ScanPhotoLibraryProgress,
 } from "./ReactNativePhotoManagement.types";
 
-type NativeClassificationResult = {
-  assetId: string;
-  labels: ClassificationLabel[];
-  error?: string;
-};
-
 type NativeModule = {
-  getAssetInfoBatch(assetIds: string[]): Promise<BatchAssetInfo[]>;
-  classifyImageBatch(
+  getAssetInfoBatch?(assetIds: string[]): Promise<BatchAssetInfo[]>;
+  classifyImageBatch?(
     assetIds: string[],
     options: {
       confidenceThreshold: number;
       maxLabels: number;
     },
-  ): Promise<NativeClassificationResult[]>;
+  ): Promise<ClassificationResult[]>;
+  classifyImageUriBatch?(
+    assetIds: string[],
+    assetUris: string[],
+    options: {
+      confidenceThreshold: number;
+      maxLabels: number;
+    },
+  ): Promise<ClassificationResult[]>;
 };
 
 const MEMORY_THRESHOLDS = {
@@ -69,9 +78,9 @@ const TIER_SETTINGS = {
 const DEFAULT_MEDIA_TYPES: PhotoLibraryMediaType[] = ["photo", "video"];
 
 const nativeModule =
-  Platform.OS === "ios"
-    ? requireOptionalNativeModule<NativeModule>("ReactNativePhotoManagement")
-    : null;
+  Platform.OS === "web"
+    ? null
+    : requireOptionalNativeModule<NativeModule>("ReactNativePhotoManagement");
 
 type DeviceTier = (typeof TIER_SETTINGS)[keyof typeof TIER_SETTINGS];
 
@@ -161,15 +170,32 @@ function toBatchAssetInfo(asset: MediaLibrary.AssetInfo): BatchAssetInfo {
   };
 }
 
-async function getJsFallbackAssetInfoBatch(
+function normalizeClassificationOptions(
+  options: ClassificationOptions = {},
+): Required<ClassificationOptions> {
+  return {
+    confidenceThreshold: options.confidenceThreshold ?? 0.1,
+    maxLabels: options.maxLabels ?? 50,
+  };
+}
+
+function uniqueAssetIds(assetIds: string[]): string[] {
+  const seen = new Set<string>();
+  return assetIds.filter((assetId) => {
+    if (seen.has(assetId)) {
+      return false;
+    }
+
+    seen.add(assetId);
+    return true;
+  });
+}
+
+async function getJsFallbackAssetInfoRecords(
   assetIds: string[],
   concurrency: number,
-): Promise<{
-  assets: BatchAssetInfo[];
-  skippedAssets: number;
-  assetsWithLocation: number;
-}> {
-  const assets = await pMap(
+): Promise<(BatchAssetInfo | null)[]> {
+  return pMap(
     assetIds,
     async (assetId) => {
       try {
@@ -181,34 +207,63 @@ async function getJsFallbackAssetInfoBatch(
     },
     { concurrency },
   );
+}
+
+async function getJsFallbackAssetInfoBatch(
+  assetIds: string[],
+  concurrency: number,
+): Promise<{
+  assets: BatchAssetInfo[];
+  skippedAssets: number;
+  assetsWithLocation: number;
+}> {
+  const assets = await getJsFallbackAssetInfoRecords(assetIds, concurrency);
 
   return summarizeCollectedAssets(assets);
 }
 
-async function classifyImageBatch(
+async function classifyImageBatchWithAndroidUris(
   assetIds: string[],
-  options: Pick<FoodDetectionOptions, "confidenceThreshold" | "maxLabels"> = {},
-): Promise<NativeClassificationResult[]> {
-  if (!nativeModule) {
-    throw createUnsupportedPlatformError("detectFoodInImageBatch", Platform.OS);
+  options: Required<ClassificationOptions>,
+): Promise<ClassificationResult[]> {
+  if (!nativeModule?.classifyImageUriBatch) {
+    throw createUnsupportedPlatformError("classifyImageBatch", Platform.OS);
   }
 
-  if (assetIds.length === 0) {
-    return [];
+  const deviceTier = getDeviceTier();
+  const assetRecords = await getJsFallbackAssetInfoRecords(
+    assetIds,
+    deviceTier.concurrency,
+  );
+  const { assetIdsToClassify, assetUrisToClassify, prefilledResults } =
+    prepareUriClassificationBatch(assetIds, assetRecords);
+
+  if (assetIdsToClassify.length === 0) {
+    return orderClassificationResults(assetIds, prefilledResults, []);
   }
 
-  return nativeModule.classifyImageBatch(assetIds, {
-    confidenceThreshold: options.confidenceThreshold ?? 0.1,
-    maxLabels: options.maxLabels ?? 50,
-  });
+  const classifiedResults = await nativeModule.classifyImageUriBatch(
+    assetIdsToClassify,
+    assetUrisToClassify,
+    options,
+  );
+
+  return orderClassificationResults(
+    assetIds,
+    prefilledResults,
+    classifiedResults,
+  );
 }
 
 export function isNativeBatchAssetInfoAvailable(): boolean {
-  return Platform.OS === "ios" && nativeModule != null;
+  return nativeModule?.getAssetInfoBatch != null;
 }
 
 export function isFoodDetectionAvailable(): boolean {
-  return isNativeBatchAssetInfoAvailable();
+  return (
+    nativeModule?.classifyImageBatch != null ||
+    nativeModule?.classifyImageUriBatch != null
+  );
 }
 
 export async function requestPhotoLibraryPermission(): Promise<boolean> {
@@ -244,7 +299,7 @@ export async function getAssetInfoBatch(
   }
 
   if (isNativeBatchAssetInfoAvailable()) {
-    return nativeModule!.getAssetInfoBatch(assetIds);
+    return nativeModule!.getAssetInfoBatch!(assetIds);
   }
 
   const deviceTier = getDeviceTier();
@@ -253,6 +308,43 @@ export async function getAssetInfoBatch(
     deviceTier.concurrency,
   );
   return result.assets;
+}
+
+export async function classifyImageBatch(
+  assetIds: string[],
+  options: ClassificationOptions = {},
+): Promise<ClassificationResult[]> {
+  ensureNativePlatform("classifyImageBatch");
+
+  if (assetIds.length === 0) {
+    return [];
+  }
+
+  const normalizedOptions = normalizeClassificationOptions(options);
+
+  if (nativeModule?.classifyImageBatch) {
+    return nativeModule.classifyImageBatch(assetIds, normalizedOptions);
+  }
+
+  if (nativeModule?.classifyImageUriBatch) {
+    return classifyImageBatchWithAndroidUris(assetIds, normalizedOptions);
+  }
+
+  throw createUnsupportedPlatformError("classifyImageBatch", Platform.OS);
+}
+
+async function resolveExistingAssetIds(assetIds: string[]): Promise<{
+  existingAssetIds: string[];
+  missingAssetIds: string[];
+}> {
+  const uniqueIds = uniqueAssetIds(assetIds);
+  const deviceTier = getDeviceTier();
+  const assetRecords = await getJsFallbackAssetInfoRecords(
+    uniqueIds,
+    deviceTier.concurrency,
+  );
+
+  return partitionExistingAssetIds(uniqueIds, assetRecords);
 }
 
 export async function detectFoodInImageBatch(
@@ -282,6 +374,144 @@ export async function detectFoodInImageBatch(
   return classificationResults.map((result) =>
     processForFoodDetection(result, foodConfidenceThreshold, foodKeywords),
   );
+}
+
+export async function deleteAssetsBatch(
+  assetIds: string[],
+): Promise<DeleteAssetsBatchResult> {
+  ensureNativePlatform("deleteAssetsBatch");
+
+  const uniqueIds = uniqueAssetIds(assetIds);
+  if (uniqueIds.length === 0) {
+    return {
+      requestedCount: 0,
+      deletedCount: 0,
+      skippedAssets: 0,
+      missingAssetIds: [],
+      success: true,
+    };
+  }
+
+  const { existingAssetIds, missingAssetIds } =
+    await resolveExistingAssetIds(uniqueIds);
+
+  if (existingAssetIds.length === 0) {
+    return {
+      requestedCount: uniqueIds.length,
+      deletedCount: 0,
+      skippedAssets: missingAssetIds.length,
+      missingAssetIds,
+      success: true,
+    };
+  }
+
+  try {
+    const success = await MediaLibrary.deleteAssetsAsync(existingAssetIds);
+    return {
+      requestedCount: uniqueIds.length,
+      deletedCount: success ? existingAssetIds.length : 0,
+      skippedAssets: missingAssetIds.length,
+      missingAssetIds,
+      success,
+      error: success ? undefined : "The platform rejected the delete request.",
+    };
+  } catch (error) {
+    return {
+      requestedCount: uniqueIds.length,
+      deletedCount: 0,
+      skippedAssets: missingAssetIds.length,
+      missingAssetIds,
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function createAlbumWithAssets(
+  albumName: string,
+  assetIds: string[],
+  options: CreateAlbumWithAssetsOptions = {},
+): Promise<CreateAlbumWithAssetsResult> {
+  ensureNativePlatform("createAlbumWithAssets");
+
+  const uniqueIds = uniqueAssetIds(assetIds);
+  if (uniqueIds.length === 0) {
+    return {
+      success: false,
+      albumName,
+      assetCount: 0,
+      created: false,
+      skippedAssets: 0,
+      missingAssetIds: [],
+      error: "No assets were provided.",
+    };
+  }
+
+  const { existingAssetIds, missingAssetIds } =
+    await resolveExistingAssetIds(uniqueIds);
+
+  if (existingAssetIds.length === 0) {
+    return {
+      success: false,
+      albumName,
+      assetCount: 0,
+      created: false,
+      skippedAssets: missingAssetIds.length,
+      missingAssetIds,
+      error: "No readable assets were found.",
+    };
+  }
+
+  try {
+    const copyAsset = options.copyAsset ?? false;
+    const existingAlbum = await MediaLibrary.getAlbumAsync(albumName);
+    let album = existingAlbum;
+    let created = false;
+
+    if (album) {
+      await MediaLibrary.addAssetsToAlbumAsync(
+        existingAssetIds,
+        album,
+        copyAsset,
+      );
+    } else {
+      created = true;
+      const [firstAssetId, ...remainingAssetIds] = existingAssetIds;
+      album = await MediaLibrary.createAlbumAsync(
+        albumName,
+        firstAssetId,
+        copyAsset,
+      );
+
+      if (remainingAssetIds.length > 0) {
+        await MediaLibrary.addAssetsToAlbumAsync(
+          remainingAssetIds,
+          album,
+          copyAsset,
+        );
+      }
+    }
+
+    return {
+      success: true,
+      albumId: album.id,
+      albumName,
+      assetCount: existingAssetIds.length,
+      created,
+      skippedAssets: missingAssetIds.length,
+      missingAssetIds,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      albumName,
+      assetCount: 0,
+      created: false,
+      skippedAssets: missingAssetIds.length,
+      missingAssetIds,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export async function scanPhotoLibrary(
@@ -345,7 +575,7 @@ export async function scanPhotoLibrary(
     const batchResult =
       strategy === "ios-native-batch"
         ? summarizeCollectedAssets(
-            await nativeModule!.getAssetInfoBatch(batchAssetIds),
+            await nativeModule!.getAssetInfoBatch!(batchAssetIds),
           )
         : await getJsFallbackAssetInfoBatch(batchAssetIds, concurrency);
 

@@ -1,6 +1,9 @@
 {
-  "platforms": ["apple"],
+  "platforms": ["apple", "android"],
   "apple": {
     "modules": ["ReactNativePhotoManagementModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.reactnativephotomanagement.ReactNativePhotoManagementModule"]
   }
 }

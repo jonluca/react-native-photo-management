@@ -42,6 +42,7 @@
   "homepage": "https://github.com/jonluca/react-native-photo-management#readme",
   "files": [
     "build",
+    "android",
     "ios",
     "plugin/build",
     "app.plugin.js",

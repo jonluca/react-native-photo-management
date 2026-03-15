@@ -1,5 +1,9 @@
 import {
+  createClassificationErrorResult,
   createUnsupportedPlatformError,
+  orderClassificationResults,
+  partitionExistingAssetIds,
+  prepareUriClassificationBatch,
   processForFoodDetection,
   summarizeCollectedAssets,
   updateScanProgressMetrics,
@@ -90,4 +94,81 @@ describe("ReactNativePhotoManagement internals", () => {
     expect(summary.assetsWithLocation).toBe(1);
     expect(summary.skippedAssets).toBe(2);
   });
+
+  it("prepares Android uri classification batches and pre-fills errors", () => {
+    const assetIds = ["asset-1", "asset-2", "asset-3"];
+    const batch = prepareUriClassificationBatch(assetIds, [
+      { uri: "file:///asset-1.jpg", mediaType: "photo" },
+      { uri: "file:///asset-2.mp4", mediaType: "video" },
+      null,
+    ]);
+
+    expect(batch.assetIdsToClassify).toEqual(["asset-1"]);
+    expect(batch.assetUrisToClassify).toEqual(["file:///asset-1.jpg"]);
+    expect(batch.prefilledResults).toEqual([
+      createClassificationErrorResult(
+        "asset-2",
+        "Only photo assets can be classified",
+      ),
+      createClassificationErrorResult("asset-3", "Asset not found"),
+    ]);
+  });
+
+  it("orders classification results with prefilled fallbacks", () => {
+    const ordered = orderClassificationResults(
+      ["asset-1", "asset-2", "asset-3"],
+      [createClassificationErrorResult("asset-2", "Asset not found")],
+      [
+        {
+          assetId: "asset-3",
+          labels: [{ label: "food", confidence: 0.9 }],
+        },
+        {
+          assetId: "asset-1",
+          labels: [{ label: "coffee", confidence: 0.8 }],
+        },
+      ],
+    );
+
+    expect(ordered).toEqual([
+      {
+        assetId: "asset-1",
+        labels: [{ label: "coffee", confidence: 0.8 }],
+      },
+      createClassificationErrorResult("asset-2", "Asset not found"),
+      {
+        assetId: "asset-3",
+        labels: [{ label: "food", confidence: 0.9 }],
+      },
+    ]);
+  });
+
+  it("partitions existing asset ids from missing ones", () => {
+    const result = partitionExistingAssetIds(
+      ["asset-1", "asset-2", "asset-3"],
+      [usableAsset(), null, usableAsset("asset-3")],
+    );
+
+    expect(result).toEqual({
+      existingAssetIds: ["asset-1", "asset-3"],
+      missingAssetIds: ["asset-2"],
+    });
+  });
 });
+
+function usableAsset(id = "asset-1"): BatchAssetInfo {
+  return {
+    id,
+    uri: `content://${id}`,
+    creationTime: 1,
+    modificationTime: 2,
+    width: 100,
+    height: 100,
+    mediaType: "photo",
+    duration: 0,
+    location: {
+      latitude: 10,
+      longitude: 20,
+    },
+  };
+}

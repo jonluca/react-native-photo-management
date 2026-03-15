@@ -5,9 +5,12 @@
 It exposes:
 
 - iOS-native batch asset metadata lookup via PhotoKit
-- iOS-native food detection via Apple Vision
+- Android and iOS on-device image classification
+- Cross-platform food detection built on Apple Vision and ML Kit labels
 - Android JS fallback batching built on `expo-media-library`
 - A streaming `scanPhotoLibrary()` helper so app code owns persistence
+- Bulk album creation/update helpers that skip missing assets
+- Bulk asset delete helpers with missing-asset tolerance
 - A config plugin that wires `expo-media-library` permissions from a single plugin entry
 
 ## Install
@@ -46,11 +49,11 @@ Optional plugin configuration:
 
 ## Platform Support
 
-| Platform | `getAssetInfoBatch`                  | `detectFoodInImageBatch` | `scanPhotoLibrary`                |
-| -------- | ------------------------------------ | ------------------------ | --------------------------------- |
-| iOS      | Native batch bridge                  | Apple Vision             | Native batch metadata + streaming |
-| Android  | JS fallback via `expo-media-library` | Unsupported              | JS fallback + streaming           |
-| Web      | Unsupported                          | Unsupported              | Unsupported                       |
+| Platform | `getAssetInfoBatch`                  | `classifyImageBatch` | `detectFoodInImageBatch` | `createAlbumWithAssets` / `deleteAssetsBatch` | `scanPhotoLibrary`                |
+| -------- | ------------------------------------ | -------------------- | ------------------------ | --------------------------------------------- | --------------------------------- |
+| iOS      | Native batch bridge                  | Apple Vision         | Supported                | Supported                                     | Native batch metadata + streaming |
+| Android  | JS fallback via `expo-media-library` | ML Kit               | Supported                | Supported                                     | JS fallback + streaming           |
+| Web      | Unsupported                          | Unsupported          | Unsupported              | Unsupported                                   | Unsupported                       |
 
 ## API
 
@@ -60,7 +63,7 @@ Returns `true` when the iOS native batch bridge is linked and available.
 
 ### `isFoodDetectionAvailable()`
 
-Returns `true` only on iOS when Apple Vision-backed food detection is available.
+Returns `true` on iOS and Android when the native image classifier is linked.
 
 ### `requestPhotoLibraryPermission()`
 
@@ -100,9 +103,23 @@ type BatchAssetInfo = {
 
 On Android, unreadable or deleted assets are skipped.
 
+### `classifyImageBatch(assetIds, options?)`
+
+Runs on-device image labeling and returns platform-native labels.
+
+```ts
+type ClassificationResult = {
+  assetId: string;
+  labels: Array<{ label: string; confidence: number }>;
+  error?: string;
+};
+```
+
+On Android, non-photo assets are returned with an `error` instead of crashing the batch.
+
 ### `detectFoodInImageBatch(assetIds, options?)`
 
-Runs Apple Vision classification on iOS and returns `FoodDetectionResult[]`.
+Runs on-device classification and filters for food-related labels.
 
 ```ts
 type FoodDetectionResult = {
@@ -115,7 +132,41 @@ type FoodDetectionResult = {
 };
 ```
 
-On Android and web, this throws an `UnsupportedPlatformError`.
+On web, this throws an `UnsupportedPlatformError`.
+
+Label vocabularies differ between Apple Vision and ML Kit, so the exact label text may not match across platforms even though the API contract does.
+
+### `createAlbumWithAssets(albumName, assetIds, options?)`
+
+Creates an album when missing or appends to an existing one. Missing or unreadable assets are skipped.
+
+```ts
+type CreateAlbumWithAssetsResult = {
+  success: boolean;
+  albumId?: string;
+  albumName: string;
+  assetCount: number;
+  created: boolean;
+  skippedAssets: number;
+  missingAssetIds: string[];
+  error?: string;
+};
+```
+
+### `deleteAssetsBatch(assetIds)`
+
+Deletes all readable assets in a batch and reports any missing ones without failing the whole request.
+
+```ts
+type DeleteAssetsBatchResult = {
+  requestedCount: number;
+  deletedCount: number;
+  skippedAssets: number;
+  missingAssetIds: string[];
+  success: boolean;
+  error?: string;
+};
+```
 
 ### `scanPhotoLibrary(options)`
 
@@ -158,7 +209,8 @@ The repo includes an Expo example app in `example/App.tsx` that exercises:
 - asset counting
 - streaming scan progress
 - batch metadata lookup
-- iOS food detection on sampled photos
+- cross-platform image classification and food detection
+- bulk album creation from sampled assets
 
 Run it with:
 

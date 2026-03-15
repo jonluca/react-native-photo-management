@@ -27,9 +27,18 @@ export interface ClassificationLabel {
   confidence: number;
 }
 
-export interface FoodDetectionOptions {
+export interface ClassificationOptions {
   confidenceThreshold?: number;
   maxLabels?: number;
+}
+
+export interface ClassificationResult {
+  assetId: string;
+  labels: ClassificationLabel[];
+  error?: string;
+}
+
+export interface FoodDetectionOptions extends ClassificationOptions {
   foodConfidenceThreshold?: number;
   foodKeywords?: string[];
 }
@@ -45,6 +54,30 @@ export interface FoodDetectionResult {
 
 export interface CountPhotoLibraryAssetsOptions {
   mediaTypes?: PhotoLibraryMediaType[];
+}
+
+export interface CreateAlbumWithAssetsOptions {
+  copyAsset?: boolean;
+}
+
+export interface CreateAlbumWithAssetsResult {
+  success: boolean;
+  albumId?: string;
+  albumName: string;
+  assetCount: number;
+  created: boolean;
+  skippedAssets: number;
+  missingAssetIds: string[];
+  error?: string;
+}
+
+export interface DeleteAssetsBatchResult {
+  requestedCount: number;
+  deletedCount: number;
+  skippedAssets: number;
+  missingAssetIds: string[];
+  success: boolean;
+  error?: string;
 }
 
 export type ScanStrategy = "ios-native-batch" | "js-fallback";

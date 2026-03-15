@@ -1,7 +1,12 @@
 import { createUnsupportedPlatformError } from "./ReactNativePhotoManagement.internal";
 import type {
   BatchAssetInfo,
+  ClassificationOptions,
+  ClassificationResult,
   CountPhotoLibraryAssetsOptions,
+  CreateAlbumWithAssetsOptions,
+  CreateAlbumWithAssetsResult,
+  DeleteAssetsBatchResult,
   FoodDetectionOptions,
   FoodDetectionResult,
   ScanPhotoLibraryOptions,
@@ -40,11 +45,32 @@ export async function getAssetInfoBatch(
   throw unsupported("getAssetInfoBatch");
 }
 
+export async function classifyImageBatch(
+  _assetIds: string[],
+  _options: ClassificationOptions = {},
+): Promise<ClassificationResult[]> {
+  throw unsupported("classifyImageBatch");
+}
+
 export async function detectFoodInImageBatch(
   _assetIds: string[],
   _options: FoodDetectionOptions = {},
 ): Promise<FoodDetectionResult[]> {
   throw unsupported("detectFoodInImageBatch");
+}
+
+export async function deleteAssetsBatch(
+  _assetIds: string[],
+): Promise<DeleteAssetsBatchResult> {
+  throw unsupported("deleteAssetsBatch");
+}
+
+export async function createAlbumWithAssets(
+  _albumName: string,
+  _assetIds: string[],
+  _options: CreateAlbumWithAssetsOptions = {},
+): Promise<CreateAlbumWithAssetsResult> {
+  throw unsupported("createAlbumWithAssets");
 }
 
 export async function scanPhotoLibrary(

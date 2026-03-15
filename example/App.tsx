@@ -11,7 +11,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
   type BatchAssetInfo,
+  classifyImageBatch,
   countPhotoLibraryAssets,
+  createAlbumWithAssets,
   detectFoodInImageBatch,
   getAssetInfoBatch,
   hasPhotoLibraryPermission,
@@ -29,7 +31,9 @@ type AppState = {
   count: number | null;
   progress: ScanPhotoLibraryProgress | null;
   sampleAssets: BatchAssetInfo[];
+  classificationSummary: string;
   foodDetectionSummary: string;
+  albumSummary: string;
   statusMessage: string;
 };
 
@@ -40,7 +44,9 @@ const initialState: AppState = {
   count: null,
   progress: null,
   sampleAssets: [],
+  classificationSummary: "Not run",
   foodDetectionSummary: "Not run",
+  albumSummary: "Not run",
   statusMessage: "Idle",
 };
 
@@ -121,7 +127,9 @@ export default function App() {
       updateState({
         statusMessage: "Scanning photo library...",
         sampleAssets: [],
+        classificationSummary: "Not run",
         foodDetectionSummary: "Not run",
+        albumSummary: "Not run",
       });
 
       const nextProgress = await scanPhotoLibrary({
@@ -155,6 +163,46 @@ export default function App() {
     }
   }
 
+  async function handleClassifyImages() {
+    try {
+      if (!isFoodDetectionAvailable()) {
+        updateState({
+          classificationSummary: `Unavailable on ${Platform.OS}.`,
+        });
+        return;
+      }
+
+      const photoIds = state.sampleAssets
+        .filter((asset) => asset.mediaType === "photo")
+        .slice(0, 3)
+        .map((asset) => asset.id);
+
+      if (photoIds.length === 0) {
+        updateState({
+          classificationSummary: "Scan first to collect sample photo assets.",
+        });
+        return;
+      }
+
+      const results = await classifyImageBatch(photoIds);
+      updateState({
+        classificationSummary: results
+          .map((result) => {
+            const labels = result.labels
+              .slice(0, 3)
+              .map((label) => label.label)
+              .join(", ");
+            return `${result.assetId}: ${
+              labels || result.error || "No labels"
+            }`;
+          })
+          .join("\n"),
+      });
+    } catch (error) {
+      updateState({ classificationSummary: String(error) });
+    }
+  }
+
   async function handleDetectFood() {
     try {
       if (!isFoodDetectionAvailable()) {
@@ -184,13 +232,42 @@ export default function App() {
     }
   }
 
+  async function handleCreateAlbum() {
+    try {
+      const assetIds = state.sampleAssets.slice(0, 5).map((asset) => asset.id);
+      if (assetIds.length === 0) {
+        updateState({
+          albumSummary: "Scan first to collect sample assets.",
+        });
+        return;
+      }
+
+      const result = await createAlbumWithAssets(
+        "react-native-photo-management samples",
+        assetIds
+      );
+
+      updateState({
+        albumSummary: result.success
+          ? `${result.created ? "Created" : "Updated"} "${
+              result.albumName
+            }" with ${result.assetCount} assets. Skipped ${
+              result.skippedAssets
+            }.`
+          : result.error ?? "Album update failed.",
+      });
+    } catch (error) {
+      updateState({ albumSummary: String(error) });
+    }
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>react-native-photo-management</Text>
         <Text style={styles.subtitle}>
-          Native iOS batch metadata plus Vision food detection, with Android JS
-          batch scanning fallback.
+          Cross-platform photo-library scanning, batch metadata, on-device
+          classification, and reusable bulk album workflows.
         </Text>
 
         <Card title="Runtime">
@@ -230,7 +307,16 @@ export default function App() {
             <Button title="Read batch sample" onPress={handleReadBatchSample} />
           </View>
           <View style={styles.buttonRow}>
+            <Button
+              title="Classify sample photos"
+              onPress={handleClassifyImages}
+            />
+          </View>
+          <View style={styles.buttonRow}>
             <Button title="Detect food in samples" onPress={handleDetectFood} />
+          </View>
+          <View style={styles.buttonRow}>
+            <Button title="Create sample album" onPress={handleCreateAlbum} />
           </View>
         </Card>
 
@@ -271,6 +357,14 @@ export default function App() {
 
         <Card title="Food Detection">
           <Text style={styles.bodyText}>{state.foodDetectionSummary}</Text>
+        </Card>
+
+        <Card title="Classification">
+          <Text style={styles.bodyText}>{state.classificationSummary}</Text>
+        </Card>
+
+        <Card title="Album Result">
+          <Text style={styles.bodyText}>{state.albumSummary}</Text>
         </Card>
 
         <Card title="Sample Assets">

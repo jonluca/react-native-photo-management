@@ -1,15 +1,9 @@
 import type {
   BatchAssetInfo,
-  ClassificationLabel,
+  ClassificationResult,
   FoodDetectionResult,
   ScanPhotoLibraryProgress,
 } from "./ReactNativePhotoManagement.types";
-
-type ClassificationResult = {
-  assetId: string;
-  labels: ClassificationLabel[];
-  error?: string;
-};
 
 export const DEFAULT_FOOD_IDENTIFIERS = new Set([
   "food",
@@ -71,6 +65,17 @@ export function createUnsupportedPlatformError(
   return error;
 }
 
+export function createClassificationErrorResult(
+  assetId: string,
+  error: string,
+): ClassificationResult {
+  return {
+    assetId,
+    labels: [],
+    error,
+  };
+}
+
 export function hasUsableLocation(
   location: BatchAssetInfo["location"],
 ): boolean {
@@ -103,6 +108,94 @@ export function processForFoodDetection(
     labels: result.labels,
     error: result.error,
   };
+}
+
+export function partitionExistingAssetIds(
+  assetIds: string[],
+  assets: (BatchAssetInfo | null | undefined)[],
+): {
+  existingAssetIds: string[];
+  missingAssetIds: string[];
+} {
+  const existingAssetIds: string[] = [];
+  const missingAssetIds: string[] = [];
+
+  for (const [index, assetId] of assetIds.entries()) {
+    if (assets[index]) {
+      existingAssetIds.push(assetId);
+    } else {
+      missingAssetIds.push(assetId);
+    }
+  }
+
+  return {
+    existingAssetIds,
+    missingAssetIds,
+  };
+}
+
+export function prepareUriClassificationBatch(
+  assetIds: string[],
+  assets: (Pick<BatchAssetInfo, "uri" | "mediaType"> | null | undefined)[],
+): {
+  assetIdsToClassify: string[];
+  assetUrisToClassify: string[];
+  prefilledResults: ClassificationResult[];
+} {
+  const assetIdsToClassify: string[] = [];
+  const assetUrisToClassify: string[] = [];
+  const prefilledResults: ClassificationResult[] = [];
+
+  for (const [index, assetId] of assetIds.entries()) {
+    const asset = assets[index];
+    if (!asset) {
+      prefilledResults.push(
+        createClassificationErrorResult(assetId, "Asset not found"),
+      );
+      continue;
+    }
+
+    if (asset.mediaType !== "photo") {
+      prefilledResults.push(
+        createClassificationErrorResult(
+          assetId,
+          "Only photo assets can be classified",
+        ),
+      );
+      continue;
+    }
+
+    assetIdsToClassify.push(assetId);
+    assetUrisToClassify.push(asset.uri);
+  }
+
+  return {
+    assetIdsToClassify,
+    assetUrisToClassify,
+    prefilledResults,
+  };
+}
+
+export function orderClassificationResults(
+  assetIds: string[],
+  prefilledResults: ClassificationResult[],
+  classifiedResults: ClassificationResult[],
+): ClassificationResult[] {
+  const orderedResults = new Map<string, ClassificationResult>();
+
+  for (const result of prefilledResults) {
+    orderedResults.set(result.assetId, result);
+  }
+
+  for (const result of classifiedResults) {
+    orderedResults.set(result.assetId, result);
+  }
+
+  return assetIds.map(
+    (assetId) =>
+      orderedResults.get(assetId) ??
+      createClassificationErrorResult(assetId, "Classification failed"),
+  );
 }
 
 export function summarizeCollectedAssets(
