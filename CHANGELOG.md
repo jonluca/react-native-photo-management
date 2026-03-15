@@ -16,3 +16,6 @@
 - Added bulk image classification, album creation/update, and delete helpers.
 
 ### 🐛 Bug fixes
+
+- Removed the package's last direct runtime dependency by inlining the bounded concurrency helper.
+- Ignored local Playwright browser artifacts in the repo.

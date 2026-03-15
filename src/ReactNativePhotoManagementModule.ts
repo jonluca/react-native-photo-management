@@ -1,7 +1,6 @@
 import { requireOptionalNativeModule } from "expo";
 import * as Device from "expo-device";
 import * as MediaLibrary from "expo-media-library";
-import pMap from "p-map";
 import { Platform } from "react-native";
 
 import {
@@ -83,6 +82,32 @@ const nativeModule =
     : requireOptionalNativeModule<NativeModule>("ReactNativePhotoManagement");
 
 type DeviceTier = (typeof TIER_SETTINGS)[keyof typeof TIER_SETTINGS];
+
+async function mapWithConcurrency<TInput, TOutput>(
+  items: TInput[],
+  concurrency: number,
+  mapper: (item: TInput, index: number) => Promise<TOutput>,
+): Promise<TOutput[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results = new Array<TOutput>(items.length);
+  const workerCount = Math.min(Math.max(concurrency, 1), items.length);
+  let nextIndex = 0;
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+      }
+    }),
+  );
+
+  return results;
+}
 
 function getDeviceTier(): DeviceTier {
   const { totalMemory, deviceYearClass } = Device;
@@ -195,18 +220,14 @@ async function getJsFallbackAssetInfoRecords(
   assetIds: string[],
   concurrency: number,
 ): Promise<(BatchAssetInfo | null)[]> {
-  return pMap(
-    assetIds,
-    async (assetId) => {
-      try {
-        const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId);
-        return toBatchAssetInfo(assetInfo);
-      } catch {
-        return null;
-      }
-    },
-    { concurrency },
-  );
+  return mapWithConcurrency(assetIds, concurrency, async (assetId) => {
+    try {
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId);
+      return toBatchAssetInfo(assetInfo);
+    } catch {
+      return null;
+    }
+  });
 }
 
 async function getJsFallbackAssetInfoBatch(

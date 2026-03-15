@@ -58,3 +58,4 @@ plugin/build/
 
 # Expo
 .expo/*
+.playwright-cli/
