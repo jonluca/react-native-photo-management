@@ -55,13 +55,15 @@
     "access": "public"
   },
   "devDependencies": {
+    "@types/node": "24.13.3",
     "@types/react": "~19.2.14",
     "expo-module-scripts": "^55.0.2",
     "expo": "^55.0.6",
     "expo-device": "~55.0.9",
     "expo-media-library": "~55.0.9",
     "react": "19.2.0",
-    "react-native": "0.83.2"
+    "react-native": "0.83.2",
+    "typescript": "5.9.3"
   },
   "peerDependencies": {
     "expo": ">=55.0.0",

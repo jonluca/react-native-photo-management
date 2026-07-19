@@ -29,7 +29,8 @@ class ReactNativePhotoManagementModule : Module() {
     if (assetIds.size != assetUris.size) {
       promise.reject(
         "ERR_INVALID_ARGUMENTS",
-        "assetIds and assetUris must contain the same number of items."
+        "assetIds and assetUris must contain the same number of items.",
+        null
       )
       return
     }
@@ -43,7 +44,8 @@ class ReactNativePhotoManagementModule : Module() {
     if (context == null) {
       promise.reject(
         "ERR_NO_REACT_CONTEXT",
-        "React context is not available."
+        "React context is not available.",
+        null
       )
       return
     }
@@ -52,7 +54,6 @@ class ReactNativePhotoManagementModule : Module() {
       val labeler = ImageLabeling.getClient(
         ImageLabelerOptions.Builder()
           .setConfidenceThreshold(options.confidenceThreshold)
-          .setMaxResultCount(options.maxLabels)
           .build()
       )
 
@@ -61,7 +62,8 @@ class ReactNativePhotoManagementModule : Module() {
           classifySingleUri(
             assetId = assetIds[index],
             assetUri = assetUris[index],
-            labeler = labeler
+            labeler = labeler,
+            maxLabels = options.maxLabels
           )
         }
 
@@ -81,7 +83,8 @@ class ReactNativePhotoManagementModule : Module() {
   private fun classifySingleUri(
     assetId: String,
     assetUri: String,
-    labeler: com.google.mlkit.vision.label.ImageLabeler
+    labeler: com.google.mlkit.vision.label.ImageLabeler,
+    maxLabels: Int
   ): Map<String, Any?> {
     val context = appContext.reactContext
       ?: return mapOf(
@@ -92,7 +95,7 @@ class ReactNativePhotoManagementModule : Module() {
 
     return try {
       val image = InputImage.fromFilePath(context, Uri.parse(assetUri))
-      val labels = Tasks.await(labeler.process(image)).map { label ->
+      val labels = Tasks.await(labeler.process(image)).take(maxLabels).map { label ->
         mapOf(
           "label" to label.text,
           "confidence" to label.confidence.toDouble()

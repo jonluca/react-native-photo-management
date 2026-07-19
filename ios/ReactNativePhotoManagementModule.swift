@@ -100,7 +100,7 @@ public class ReactNativePhotoManagementModule: Module {
         }
 
         group.enter()
-        processingQueue.async {
+        self.processingQueue.async {
           self.semaphore.wait()
           defer { self.semaphore.signal() }
 
